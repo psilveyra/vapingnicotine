@@ -1,0 +1,712 @@
+---
+title: "Grant Sharma"
+author: "Erik Parker and Lijiang Gou for the Biostatistics Consulting Center (BCC)"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 2
+    code_folding: hide
+    df_print: kable
+---
+
+```{=html}
+<style>
+pre {
+  overflow-x: auto;
+}
+pre code {
+  word-wrap: normal;
+  white-space: pre;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+library(plyr)
+library(tidyverse)
+library(magrittr)
+library(kableExtra)
+library(ggrepel)
+library(patchwork)
+
+pcr.data <- read_csv("../Data/Analysis data/qPCRmice cleaned analysis data 2023-12-13.csv") %>%
+  mutate(target = factor(target),
+         Treatment = factor(Treatment),
+         sex = factor(sex)) %>%
+  rename(treatment = Treatment)
+
+```
+
+# Number of significant fold changes, 0% nicotine vs. control, by sex {.tabset}
+
+
+## Males
+
+```{r}
+
+test.results <- NULL
+# make new empty variable that will hold the results
+
+males <- pcr.data %>%
+  filter(sex == "m" & (treatment == "control" | treatment == "ecig0"))
+# filter data to just include males and the treatments that we know
+
+for (i in levels(pcr.data$target)) {
+  # initiate loop over the levels of the `target` variable to fit one model per target
+  
+  data.loop = subset(males, target == i)
+  # subset the data to just have one target per loop
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                     "ecig0")))
+  # relevel the dataset so that the negative control is the reference level. Gets us more interpretable fold change cofficients 
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  # fit the model (here the equivalent of a t-test since there are only two levels to the treatment)
+  
+  anova <- car::Anova(model)
+  # fit the anova on the model to get a p-value
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+  # save the results from each loop into the dataframe set up at the beginning to hold them
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>%
+        summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# calculate the number of targets with p-values < 0.05
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# list the targets falling below the 0.05 threshold
+
+```
+
+#### "Volcano plot"
+
+I hand-made the rt-qPCR equivalent of an RNA-SEQ volcano plot with the natural log fold change plotted against the -log base 10 p-value for each target's control vs. experimental comparison.  
+This simply serves as a way to visually represent the tables given above. But they also look cute!  
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+# make new variable to color points based on p-value
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + # plot p.val on y axis, log(FC) on x
+    geom_point() + # add points colored by p-value level
+    geom_abline(intercept = -log10(0.05), slope = 0) + # add a line at equivalent of p = 0.05
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) + #label targets p <0.05
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") + # add plot labels
+    theme_bw()
+
+```
+
+
+## Females
+
+```{r}
+
+test.results <- NULL
+
+females <- pcr.data %>%
+  filter(sex == "f" & (treatment == "control" | treatment == "ecig0"))
+
+for (i in levels(pcr.data$target)) {
+  
+  data.loop = subset(females, target == i)
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                               "ecig0")))
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  
+  anova <- car::Anova(model)
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>% summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### "Volcano plot"
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") +
+    theme_bw()
+
+```
+
+
+
+# Number of significant fold changes, 3% nicotine vs. control, by sex {.tabset}
+
+
+## Males
+
+```{r}
+
+test.results <- NULL
+# make new empty variable that will hold the results
+
+males <- pcr.data %>%
+  filter(sex == "m" & (treatment == "control" | treatment == "ecig3"))
+# filter data to just include males and the treatments we want here
+
+for (i in levels(pcr.data$target)) {
+  # initiate loop over the levels of the `target` variable to fit one model per target
+  
+  data.loop = subset(males, target == i)
+  # subset the data to just have one target per loop
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                     "ecig3")))
+  # relevel the dataset so that the negative control is the reference level. Gets us more interpretable fold change cofficients 
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  # fit the model (here the equivalent of a t-test since there are only two levels to the treatment)
+  
+  anova <- car::Anova(model)
+  # fit the anova on the model to get a p-value
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+  # save the results from each loop into the dataframe set up at the beginning to hold them
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>%
+        summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# calculate the number of targets with p-values < 0.05
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# list the targets falling below the 0.05 threshold
+
+```
+
+#### "Volcano plot"
+
+I hand-made the rt-qPCR equivalent of an RNA-SEQ volcano plot with the natural log fold change plotted against the -log base 10 p-value for each target's control vs. experimental comparison.  
+This simply serves as a way to visually represent the tables given above. But they also look cute!  
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+# make new variable to color points based on p-value
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + # plot p.val on y axis, log(FC) on x
+    geom_point() + # add points colored by p-value level
+    geom_abline(intercept = -log10(0.05), slope = 0) + # add a line at equivalent of p = 0.05
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) + #label targets p <0.05
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") + # add plot labels
+    theme_bw()
+
+```
+
+
+## Females
+
+```{r}
+
+test.results <- NULL
+
+females <- pcr.data %>%
+  filter(sex == "f" & (treatment == "control" | treatment == "ecig3"))
+
+for (i in levels(pcr.data$target)) {
+  
+  data.loop = subset(females, target == i)
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                               "ecig3")))
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  
+  anova <- car::Anova(model)
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>% summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### "Volcano plot"
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") +
+    theme_bw()
+
+```
+
+
+
+
+# Number of significant fold changes, 6% nicotine vs. control, by sex {.tabset}
+
+
+## Males
+
+```{r}
+
+test.results <- NULL
+# make new empty variable that will hold the results
+
+males <- pcr.data %>%
+  filter(sex == "m" & (treatment == "control" | treatment == "ecig6"))
+# filter data to just include males and the treatments that we know
+
+for (i in levels(pcr.data$target)) {
+  # initiate loop over the levels of the `target` variable to fit one model per target
+  
+  data.loop = subset(males, target == i)
+  # subset the data to just have one target per loop
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                     "ecig6")))
+  # relevel the dataset so that the negative control is the reference level. Gets us more interpretable fold change cofficients 
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  # fit the model (here the equivalent of a t-test since there are only two levels to the treatment)
+  
+  anova <- car::Anova(model)
+  # fit the anova on the model to get a p-value
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+  # save the results from each loop into the dataframe set up at the beginning to hold them
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>%
+        summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# calculate the number of targets with p-values < 0.05
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# list the targets falling below the 0.05 threshold
+
+```
+
+#### "Volcano plot"
+
+I hand-made the rt-qPCR equivalent of an RNA-SEQ volcano plot with the natural log fold change plotted against the -log base 10 p-value for each target's control vs. experimental comparison.  
+This simply serves as a way to visually represent the tables given above. But they also look cute!  
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+# make new variable to color points based on p-value
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + # plot p.val on y axis, log(FC) on x
+    geom_point() + # add points colored by p-value level
+    geom_abline(intercept = -log10(0.05), slope = 0) + # add a line at equivalent of p = 0.05
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) + #label targets p <0.05
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") + # add plot labels
+    theme_bw()
+
+```
+
+
+## Females
+
+```{r}
+
+test.results <- NULL
+
+females <- pcr.data %>%
+  filter(sex == "f" & (treatment == "control" | treatment == "ecig6"))
+
+for (i in levels(pcr.data$target)) {
+  
+  data.loop = subset(females, target == i)
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("control",
+                                                                               "ecig6")))
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  
+  anova <- car::Anova(model)
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef = coef(model)[[2]])
+
+  test.results <- rbind(test.results, test.results.list)
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>% summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### "Volcano plot"
+
+```{r, fig.width=8, fig.height=6}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+ggplot(test.results, aes(x = coef, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality") +
+    theme_bw()
+
+```
+
+
+
+# Number of significant fold changes, 0% nicotine vs. 3% nicotine vs 6% nicotine, by sex {.tabset}
+
+
+## Males
+
+```{r}
+
+test.results <- NULL
+# make new empty variable that will hold the results
+
+males <- pcr.data %>%
+  filter(sex == "m" & (treatment == "ecig0" | treatment == "ecig3" | treatment == "ecig6"))
+# filter data to just include males and the treatments that we know
+
+for (i in levels(pcr.data$target)) {
+  # initiate loop over the levels of the `target` variable to fit one model per target
+  
+  data.loop = subset(males, target == i)
+  # subset the data to just have one target per loop
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("ecig0",
+                                                                     "ecig3",
+                                                                     "ecig6")))
+  # relevel the dataset so that the negative control is the reference level. Gets us more interpretable fold change cofficients 
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  # fit the model (here the equivalent of a t-test since there are only two levels to the treatment)
+  
+  anova <- car::Anova(model)
+  # fit the anova on the model to get a p-value
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                               coef.3ecig = coef(model)[[2]],
+                               coef.6ecig = coef(model)[[3]])
+
+  test.results <- rbind(test.results, test.results.list)
+  # save the results from each loop into the dataframe set up at the beginning to hold them
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>%
+        summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# calculate the number of targets with p-values < 0.05
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change (3% ecig)", "log fold change (6% ecig)"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+# list the targets falling below the 0.05 threshold
+
+
+```
+
+#### "Volcano plot"
+
+I hand-made the rt-qPCR equivalent of an RNA-SEQ volcano plot with the natural log fold change plotted against the -log base 10 p-value for each target's control vs. experimental comparison.  
+This simply serves as a way to visually represent the tables given above. But they also look cute!  
+
+```{r, fig.width=8, fig.height=12}
+
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef.3ecig < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef.3ecig >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+three <- ggplot(test.results, aes(x = coef.3ecig, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality", title = "0% nicotine vs. 3% nicotine") +
+    theme_bw()
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef.6ecig < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef.6ecig >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+six <- ggplot(test.results, aes(x = coef.6ecig, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality", title = "0% nicotine vs. 6% nicotine") +
+    theme_bw()
+
+three / six
+
+```
+
+
+## Females
+
+```{r}
+
+test.results <- NULL
+
+females <- pcr.data %>%
+  filter(sex == "f" & (treatment == "ecig0" | treatment == "ecig3" | treatment == "ecig6"))
+
+for (i in levels(pcr.data$target)) {
+  
+  data.loop = subset(females, target == i)
+  
+  data.loop <- data.loop %>% mutate(treatment = factor(treatment, levels = c("ecig0",
+                                                                               "ecig3",
+                                                                               "ecig6")))
+  
+  model <- lm(log_fold_change ~ treatment, data = data.loop)
+  
+  anova <- car::Anova(model)
+  
+  # save p value from model for each target
+  test.results.list <- data.frame(target = i,
+                               p.val = anova$`Pr(>F)`[1],
+                                    coef.3ecig = coef(model)[[2]],
+                                    coef.6ecig = coef(model)[[3]])
+
+  test.results <- rbind(test.results, test.results.list)
+
+}
+
+```
+
+### {.tabset}
+
+#### N targets significantly different
+
+```{r}
+
+kable(test.results %>% summarise(sum(p.val < 0.05)), col.names = "N targets significantly different (p < 0.05)") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### Significantly different targets (w/ pvalues and average log FCs)
+
+```{r}
+
+kable(test.results %>% filter(p.val < 0.05), col.names = c("target", "p.value", "log fold change (3% ecig)", "log fold change (6% ecig)"), caption = "Significantly different targets", digits = 3) %>%
+  kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+#### "Volcano plot"
+
+```{r, fig.width=8, fig.height=12}
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef.3ecig < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef.3ecig >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+three <- ggplot(test.results, aes(x = coef.3ecig, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality", title = "0% nicotine vs. 3% nicotine") +
+    theme_bw()
+
+test.results <- test.results %>% mutate(color = ifelse(p.val >= 0.05, "Not significant", NA),
+                                        color = ifelse(p.val < 0.05 & coef.6ecig < 0, "Decrease", color),
+                                        color = ifelse(p.val < 0.05 & coef.6ecig >= 0, "Increase", color),
+                                        color = as.factor(color))
+
+six <- ggplot(test.results, aes(x = coef.6ecig, y = -log10(p.val), color = color)) + 
+    geom_point() + 
+    geom_abline(intercept = -log10(0.05), slope = 0) + 
+    geom_label_repel(aes(label = ifelse(p.val < 0.05, as.character(target), '')), hjust = 0, vjust = 0) +
+    labs(x = "log2(fold change)", y = "-log10(p value)", color = "Directionality", title = "0% nicotine vs. 6% nicotine") +
+    theme_bw()
+
+three / six
+
+
+```
+
+
