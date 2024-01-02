@@ -1,0 +1,107 @@
+---
+title: "Shikha ecig Jan 2024 - vape vs. non vape M and F"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-01-23"
+---
+
+```{r}
+setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-IndianaUniversity/Sharma, Shikha - Manuscript-IJERPH-12-23-2023/Data analysis on R/Vape vs non vape M and F")
+require(limma)
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Biobase")
+require(NMF)
+```
+
+```{r load experiment data}
+Expvalues=read.csv("vapevnonMFnoA.csv")
+groups=read.csv("groupsvapenonMF.csv")
+samplenames=c(groups$RID)
+Expvalues=data.matrix(Expvalues)
+colnames(Expvalues)=samplenames
+mRNAid=read.csv("mRNAlist.csv")
+mRNAid=mRNAid[,1]
+dim(Expvalues)
+Expvalues
+```
+
+```{r}
+mRNAid
+groups$group
+```
+
+
+```{r create matrix and design for all - note that treatments go in alphabetical order}
+require(limma)
+design=model.matrix(~0 + groups$sample)
+colnames(design)=c("CF","CM","EcigF","EcigM")
+rownames(design)=groups$RID
+print(design)
+```
+
+
+```{r contrasts}
+fit=lmFit(Expvalues,design)
+contrast.matrix=makeContrasts(EcigMvCM=EcigM-CM, EcigFvCF=EcigF-CF, CMvCF=CM-CF, EcigMvF=EcigM-EcigF, levels=design)
+fit=contrasts.fit(fit,contrast.matrix)
+fit=eBayes(fit, trend = TRUE)
+contrast.matrix
+```
+
+## RESULTS - top tables of mRNA comparisons
+
+# 1) EcigMvCM=EcigM-CM
+
+```{r}
+EcigMvCM=topTable(fit, coef = "EcigMvCM", sort.by="p", adjust.method = "BH", genelist=mRNAid, n=Inf)
+write.csv(EcigMvCM, file = "EcigMvCM.csv")
+EcigMvCM
+volcanoplot(fit, coef = "EcigMvCM", style = "p-value")
+```
+
+
+# 2) EcigFvCF=EcigF-CF
+
+```{r}
+EcigFvCF=topTable(fit, coef = "EcigFvCF", sort.by="p", adjust.method = "BH", genelist=mRNAid, n=Inf)
+write.csv(EcigFvCF, file = "EcigFvCF.csv")
+EcigFvCF
+volcanoplot(fit, coef = "EcigFvCF", style = "p-value")
+```
+
+# 3) CMvCF=CM-CF
+
+```{r}
+CMvCF=topTable(fit, coef = "CMvCF", sort.by="p", adjust.method = "BH", genelist=mRNAid, n=Inf)
+write.csv(CMvCF, file = "CMvCF.csv")
+CMvCF
+volcanoplot(fit, coef = "CMvCF", style = "p-value")
+```
+
+# 4) EcigMvF=EcigM-EcigF
+
+```{r}
+EcigMvF=topTable(fit, coef = "EcigMvF", sort.by="p", adjust.method = "BH", genelist=mRNAid, n=Inf)
+write.csv(EcigMvF, file = "EcigMvF.csv")
+EcigMvF
+volcanoplot(fit, coef = "EcigMvF", style = "p-value")
+```
+
+
+
+```{r cluster of expression}
+require(NMF)
+aheatmap(Expvalues, color = colorRampPalette(c("blue","white","red"))(20), scale="row", annColors = "Set1", Colv = NULL, Rowv= NULL, annLegend = TRUE, border_color = "black", labCol = groups$group)
+aheatmap(Expvalues, color = colorRampPalette(c("blue","white","red"))(20), scale="row", annColors = "Set1", Colv = NA, Rowv= NA, annLegend = TRUE, border_color = "black", labCol = groups$group)
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
